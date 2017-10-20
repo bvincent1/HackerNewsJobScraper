@@ -1,7 +1,7 @@
 'use strict';
 
 const request = require('request');
-const cheerio = require('cheerio');
+const rp = require('request-promise');
 const nodemailer = require('nodemailer');
 
 const TARGET = 'benjc.vincent@gmail.com'
@@ -30,62 +30,66 @@ function sendEmail(data, callback) {
   let mail = {
     from: '"Subscribe" <subscribe@hacknslash.io>',
     to: TARGET,
-    subject: 'New StartupJobScraper Jobs!',
-    text: plaintext,
-    html: html
+    subject: 'New HackerNewsJobScraper Jobs!',
+    text: plaintext || 'No new jobs today!',
+    html: html || '<p><b>No new jobs today!</b></p>'
   };
 
   transporter.sendMail(mail, callback);
 }
 
-function join(list1, list2) {
-  let l = [];
-  for (let i = 0; i < list1.length; i++) {
-    l.push({'title': list1[i], 'link': list2[i] || null});
+function checkJob(job) {
+  if (job.title && job.title.toLowerCase().indexOf('edmonton') > -1) {
+    return {title: job.title, link: job.url, id: job.id};
   }
-  return l;
+  if (job.text && job.text.toLowerCase().indexOf('edmonton') > -1) {
+    return {title: job.title, link: job.url, id: job.id};
+  }
+
+  return null;
+}
+
+function getJson(uri) {
+  const options = {
+    headers: {
+      'User-Agent': 'HackerNewsJobScraper'
+    },
+    uri: uri,
+    json: true
+  };
+  return rp(options);
 }
 
 module.exports.cron = (err, context, callback) => {
-  const options = {
-    url: 'https://www.startupedmonton.com/jobs/',
-    headers: {
-      'User-Agent': 'hackerNewsJobScraper'
-    }
-  };
+  let uri =  'https://hacker-news.firebaseio.com/v0/jobstories.json?print=pretty';
 
-  request(options, (err, resp, body) => {
-    if (err) {
-      callback(true, err);
-    }
-    else {
-      const $ = cheerio.load(body);
+  getJson(uri).then((data) => {
+    let responses = data.map((id) => {
+      return getJson(`https://hacker-news.firebaseio.com/v0/item/${id}.json?print=pretty`);
+    });
 
-      try {
-        var titles = [];
-        var links = [];
-        $('.sqs-block-content h3').slice(1).each((i, val) => {
-          titles.push($(val).text());
-        });
+    Promise.all(responses).then((jobObjects) => {
+      let jobs =  jobObjects
+        .filter((job) => { return checkJob(job); });
 
-        $('a.sqs-block-button-element').each((i, val) => {
-          links.push($(val).attr('href'));
-        });
-
-        var data = join(titles, links);
-        console.log(data); // log to cloudwatch
-        sendEmail(data, (err, info) => {
-          if (err) {
-            callback(true, err);
-          }
-          else {
-            let msg = JSON.stringify({"getCode": resp && resp.statusCode, "emailCode": info && info.response });
-            callback(null, {'message':  msg});
-          }
-        });
-      } catch (err) {
+      console.log(jobs); // log to cloudwatch
+      sendEmail(jobs, (err, info) => {
+        if (err) {
+          callback(true, err);
+        }
+        else {
+          const msg = JSON.stringify({
+            "getCode": '200',
+            "emailCode": info && info.response
+          });
+          callback(null, {'message':  msg});
+        }
+      });
+    }).catch(function (err) {
         callback(true, err);
-      }
-    }
+    });
+  })
+  .catch((err) => {
+    callback(true, err)
   });
 };
