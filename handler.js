@@ -45,6 +45,12 @@ function checkJob(job) {
   if (job.text && job.text.toLowerCase().indexOf('edmonton') > -1) {
     return {title: job.title, link: job.url, id: job.id};
   }
+  if (job.title && job.title.toLowerCase().indexOf('remote') > -1) {
+    return {title: job.title, link: job.url, id: job.id};
+  }
+  if (job.text && job.text.toLowerCase().indexOf('remote') > -1) {
+    return {title: job.title, link: job.url, id: job.id};
+  }
 
   return null;
 }
